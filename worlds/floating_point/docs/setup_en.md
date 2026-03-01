@@ -92,6 +92,7 @@ With `num_levels: 30` (maximum) this gives **990 locations** (960 bar + 30 compl
 | Extra Level             | Counts as 1 completed level toward goal   |
 | Water Access            | Unlocks going below the water surface (see below) |
 | Level Skip              | Lets you advance to the next level without completing it (see below) |
+| Grapple Payout Speed Up | +2 rope payout speed per item (starts at 4, max 14 — the normal default) |
 | Gravity Spike (Trap)    | Sudden downward impulse                    |
 | Decay Spike (Trap)      | +10 decay rate for 10 seconds              |
 | Grapple Disconnect (Trap)| Force-releases your grapple              |

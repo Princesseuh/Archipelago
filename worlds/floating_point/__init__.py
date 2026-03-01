@@ -213,6 +213,8 @@ ITEM_TABLE: List[FPItemData] = [
     FPItemData("Water Access",           BASE_ID + 10, ItemClassification.progression, count=1),
     # Progression (level skip)
     FPItemData("Level Skip",             BASE_ID + 11, ItemClassification.progression, count=MAX_LEVELS),
+    # Progression (grapple payout — starts at 4, each item adds +2, caps at default 14)
+    FPItemData("Grapple Payout Speed Up", BASE_ID + 12, ItemClassification.progression, count=5),
     # Traps
     FPItemData("Gravity Spike (Trap)",        BASE_ID + 20, ItemClassification.trap, count=5),
     FPItemData("Decay Spike (Trap)",          BASE_ID + 21, ItemClassification.trap, count=5),
