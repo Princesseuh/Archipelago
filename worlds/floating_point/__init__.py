@@ -173,6 +173,23 @@ class LevelSkip(Choice):
     default = 1
 
 
+class GrappleUnlock(Choice):
+    """
+    Whether the Grapple Unlock item is required before you can use the grapple.
+
+    enabled:  The grapple is completely non-functional at the start. You cannot
+              fire it at all — without a grapple you can only fall. No bar
+              locations or level completions are reachable until the Grapple
+              Unlock item arrives from the multiworld. It is guaranteed to
+              appear in sphere 1 (reachable by another player immediately).
+    disabled: The grapple works from the start. No Grapple Unlock item is added.
+    """
+    display_name = "Grapple Unlock"
+    option_enabled  = 1
+    option_disabled = 0
+    default = 1
+
+
 @dataclass
 class FPOptions(PerGameCommonOptions):
     goal_type:                GoalType
@@ -184,6 +201,7 @@ class FPOptions(PerGameCommonOptions):
     level_complete_condition: LevelCompleteCondition
     water_access:             WaterAccess
     level_skip:               LevelSkip
+    grapple_unlock:           GrappleUnlock
 
 
 # ── Items ────────────────────────────────────────────────────────────────────
@@ -215,6 +233,8 @@ ITEM_TABLE: List[FPItemData] = [
     FPItemData("Level Skip",             BASE_ID + 11, ItemClassification.progression, count=MAX_LEVELS),
     # Progression (grapple payout — starts at 4, each item adds +2, caps at default 14)
     FPItemData("Grapple Payout Speed Up", BASE_ID + 12, ItemClassification.progression, count=5),
+    # Progression (grapple unlock — hard gate, guaranteed sphere 1)
+    FPItemData("Grapple Unlock",          BASE_ID + 13, ItemClassification.progression, count=1),
     # Traps
     FPItemData("Gravity Spike (Trap)",        BASE_ID + 20, ItemClassification.trap, count=5),
     FPItemData("Decay Spike (Trap)",          BASE_ID + 21, ItemClassification.trap, count=5),
@@ -307,6 +327,7 @@ class FloatingPointWorld(World):
         trap_names = [i.name for i in ITEM_TABLE if i.classification == ItemClassification.trap]
         water_on   = self.options.water_access.value == 1
         skip_on    = self.options.level_skip.value == 1
+        grapple_on = self.options.grapple_unlock.value == 1
 
         # Items excluded from the pool based on options
         excluded = set()
@@ -314,6 +335,8 @@ class FloatingPointWorld(World):
             excluded.add("Water Access")
         if not skip_on:
             excluded.add("Level Skip")
+        if not grapple_on:
+            excluded.add("Grapple Unlock")
 
         # Add fixed-count non-trap items (respecting exclusions)
         for data in ITEM_TABLE:
@@ -378,14 +401,33 @@ class FloatingPointWorld(World):
         score_req  = self.options.goal_score.value
         bars_req   = min(self.options.bars_required.value, num_levels * BARS_PER_LEVEL)
         water_on   = self.options.water_access.value == 1
+        grapple_on = self.options.grapple_unlock.value == 1
 
-        # Water Access gate: bars 24-31 (0-based) on every level require Water Access
+        # Grapple Unlock gate: every single location requires the grapple.
+        # The player can reach any level region freely (no connection rule), but
+        # cannot collect any bar or complete any level without the grapple.
+        # This guarantees the AP generator places Grapple Unlock in sphere 1.
+        if grapple_on:
+            for lvl in range(num_levels):
+                for bar in range(BARS_PER_LEVEL):
+                    loc = self.multiworld.get_location(_location_name(lvl, bar), self.player)
+                    loc.access_rule = lambda state: state.has("Grapple Unlock", self.player)
+                completion_loc = self.multiworld.get_location(_level_complete_name(lvl), self.player)
+                completion_loc.access_rule = lambda state: state.has("Grapple Unlock", self.player)
+
+        # Water Access gate: bars 24-31 (0-based) on every level require Water Access.
+        # If grapple_unlock is also on, AND the two rules together.
         if water_on:
             for lvl in range(num_levels):
                 for bar in range(WATER_GATED_BAR_START, BARS_PER_LEVEL):
-                    loc_name = _location_name(lvl, bar)
-                    loc = self.multiworld.get_location(loc_name, self.player)
-                    loc.access_rule = lambda state: state.has("Water Access", self.player)
+                    loc = self.multiworld.get_location(_location_name(lvl, bar), self.player)
+                    if grapple_on:
+                        loc.access_rule = lambda state: (
+                            state.has("Grapple Unlock", self.player) and
+                            state.has("Water Access", self.player)
+                        )
+                    else:
+                        loc.access_rule = lambda state: state.has("Water Access", self.player)
 
         if goal == GOAL_LEVELS_COMPLETED:
             self.multiworld.completion_condition[self.player] = (
@@ -439,4 +481,5 @@ class FloatingPointWorld(World):
             "level_complete_condition": self.options.level_complete_condition.value,
             "water_access_required":    self.options.water_access.value,
             "level_skip_required":      self.options.level_skip.value,
+            "grapple_unlock_required":  self.options.grapple_unlock.value,
         }

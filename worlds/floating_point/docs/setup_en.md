@@ -47,6 +47,7 @@ Floating Point:
   level_complete_condition: all_bars  # all_bars or press_enter (see below)
   water_access: enabled             # enabled or disabled (see below)
   level_skip: enabled               # enabled or disabled (see below)
+  grapple_unlock: enabled           # enabled or disabled (see below)
 ```
 
 ## Goal Types
@@ -93,6 +94,7 @@ With `num_levels: 30` (maximum) this gives **990 locations** (960 bar + 30 compl
 | Water Access            | Unlocks going below the water surface (see below) |
 | Level Skip              | Lets you advance to the next level without completing it (see below) |
 | Grapple Payout Speed Up | +2 rope payout speed per item (starts at 4, max 14 — the normal default) |
+| Grapple Unlock          | Unlocks the grapple entirely — without it you can only fall (see below) |
 | Gravity Spike (Trap)    | Sudden downward impulse                    |
 | Decay Spike (Trap)      | +10 decay rate for 10 seconds              |
 | Grapple Disconnect (Trap)| Force-releases your grapple              |
@@ -117,6 +119,15 @@ When `level_skip: enabled` (the default), pressing **Enter** to advance to the n
 - Using a skip consumes one from your stock permanently.
 
 Set `level_skip: disabled` to remove the Enter gate entirely — you can advance at any time without needing a skip, and no Level Skip items are added to the pool.
+
+## Grapple Unlock
+
+When `grapple_unlock: enabled` (the default), the grapple is **completely non-functional** at the start of the game. You cannot fire it at all — since there are no floors or platforms, you will simply fall until you hit the water surface. No bars can be collected and no levels can be completed until you receive the **Grapple Unlock** item from the multiworld.
+
+- The item is guaranteed to appear in **sphere 1** — it will always be reachable by another player immediately, so you will never wait forever.
+- Once received, the grapple works normally.
+
+Set `grapple_unlock: disabled` to start with a working grapple and remove the item from the pool entirely.
 
 ## Goal
 
