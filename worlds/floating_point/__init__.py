@@ -84,18 +84,20 @@ class LevelsRequired(Range):
     display_name = "Levels Required"
     range_start = 1
     range_end = MAX_LEVELS
-    default = 3
+    default = 10
 
 
 class GoalScore(Range):
     """
     [Goal: score] Total score that must be accumulated across all levels to win.
+    A single level typically yields around 1,000,000 points; upgrades increase
+    this significantly over a full run.
     Ignored for other goal types.
     """
     display_name = "Goal Score"
-    range_start = 1000
-    range_end = 100_000
-    default = 10_000
+    range_start = 100_000
+    range_end = 50_000_000
+    default = 5_000_000
 
 
 class BarsRequired(Range):
@@ -106,7 +108,7 @@ class BarsRequired(Range):
     display_name = "Bars Required"
     range_start = 10
     range_end = _MAX_BAR_LOCATIONS
-    default = 96   # 3 full levels worth
+    default = 320   # all bars across default 10 levels
 
 
 class NumLevels(Range):

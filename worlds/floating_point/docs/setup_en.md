@@ -40,9 +40,9 @@ name: YourName
 Floating Point:
   goal_type: levels_completed       # See Goal Types below
   num_levels: 10                    # 1–30: how many levels to include
-  levels_required: 3                # [goal_type: levels_completed] must be <= num_levels
-  goal_score: 10000                 # [goal_type: score] target score
-  bars_required: 96                 # [goal_type: bars_collected] total bars
+  levels_required: 10               # [goal_type: levels_completed] must be <= num_levels
+  goal_score: 5000000               # [goal_type: score] target score
+  bars_required: 320                # [goal_type: bars_collected] total bars
   trap_percentage: 15               # 0–50: % of filler slots that are traps
   level_complete_condition: all_bars  # all_bars or press_enter (see below)
   water_access: enabled             # enabled or disabled (see below)
