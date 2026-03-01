@@ -158,6 +158,21 @@ class WaterAccess(Choice):
     default = 1
 
 
+class LevelSkip(Choice):
+    """
+    Whether Level Skip items are added to the pool and Enter is gated.
+
+    enabled:  You cannot press Enter to advance to the next level unless the
+              level is complete OR you have a Level Skip available. Level Skip
+              items are added to the multiworld pool (one per level on average).
+    disabled: Enter always works freely. No Level Skip items are added.
+    """
+    display_name = "Level Skip"
+    option_enabled  = 1
+    option_disabled = 0
+    default = 1
+
+
 @dataclass
 class FPOptions(PerGameCommonOptions):
     goal_type:                GoalType
@@ -168,6 +183,7 @@ class FPOptions(PerGameCommonOptions):
     trap_percentage:          TrapPercentage
     level_complete_condition: LevelCompleteCondition
     water_access:             WaterAccess
+    level_skip:               LevelSkip
 
 
 # ── Items ────────────────────────────────────────────────────────────────────
@@ -195,6 +211,8 @@ ITEM_TABLE: List[FPItemData] = [
     FPItemData("Extra Level",            BASE_ID + 9,  ItemClassification.progression, count=MAX_LEVELS),
     # Progression (water gating)
     FPItemData("Water Access",           BASE_ID + 10, ItemClassification.progression, count=1),
+    # Progression (level skip)
+    FPItemData("Level Skip",             BASE_ID + 11, ItemClassification.progression, count=MAX_LEVELS),
     # Traps
     FPItemData("Gravity Spike (Trap)",        BASE_ID + 20, ItemClassification.trap, count=5),
     FPItemData("Decay Spike (Trap)",          BASE_ID + 21, ItemClassification.trap, count=5),
@@ -269,7 +287,7 @@ class FloatingPointWorld(World):
 
     game = "Floating Point"
     options_dataclass = FPOptions
-    options: FPOptions
+    options: FPOptions  # type: ignore[override]
     web = FPWeb()
 
     item_name_to_id = _build_item_name_to_id()
@@ -285,10 +303,21 @@ class FloatingPointWorld(World):
         pool: List[FloatingPointItem] = []
         trap_pct   = self.options.trap_percentage.value / 100.0
         trap_names = [i.name for i in ITEM_TABLE if i.classification == ItemClassification.trap]
+        water_on   = self.options.water_access.value == 1
+        skip_on    = self.options.level_skip.value == 1
 
-        # Add fixed-count non-trap items
+        # Items excluded from the pool based on options
+        excluded = set()
+        if not water_on:
+            excluded.add("Water Access")
+        if not skip_on:
+            excluded.add("Level Skip")
+
+        # Add fixed-count non-trap items (respecting exclusions)
         for data in ITEM_TABLE:
             if data.classification == ItemClassification.trap:
+                continue
+            if data.name in excluded:
                 continue
             for _ in range(data.count):
                 pool.append(self.create_item(data.name))
@@ -406,4 +435,6 @@ class FloatingPointWorld(World):
             "bars_required":            min(self.options.bars_required.value, num_levels * BARS_PER_LEVEL),
             "total_locations":          num_levels * BARS_PER_LEVEL + num_levels,
             "level_complete_condition": self.options.level_complete_condition.value,
+            "water_access_required":    self.options.water_access.value,
+            "level_skip_required":      self.options.level_skip.value,
         }

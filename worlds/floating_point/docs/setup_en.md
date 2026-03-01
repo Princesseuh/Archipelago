@@ -46,6 +46,7 @@ Floating Point:
   trap_percentage: 15               # 0–50: % of filler slots that are traps
   level_complete_condition: all_bars  # all_bars or press_enter (see below)
   water_access: enabled             # enabled or disabled (see below)
+  level_skip: enabled               # enabled or disabled (see below)
 ```
 
 ## Goal Types
@@ -90,6 +91,7 @@ With `num_levels: 30` (maximum) this gives **990 locations** (960 bar + 30 compl
 | Score Bonus (Large)     | +5000 score                                |
 | Extra Level             | Counts as 1 completed level toward goal   |
 | Water Access            | Unlocks going below the water surface (see below) |
+| Level Skip              | Lets you advance to the next level without completing it (see below) |
 | Gravity Spike (Trap)    | Sudden downward impulse                    |
 | Decay Spike (Trap)      | +10 decay rate for 10 seconds              |
 | Grapple Disconnect (Trap)| Force-releases your grapple              |
@@ -104,6 +106,16 @@ When `water_access: enabled` (the default), the water surface at y=0 acts as a *
 Once you receive Water Access, the water returns to its normal buoyant behaviour and those bars become reachable.
 
 Set `water_access: disabled` to skip the gate entirely — water behaves normally from the start and no Water Access item is added to the pool.
+
+## Level Skip
+
+When `level_skip: enabled` (the default), pressing **Enter** to advance to the next level is **gated**: you can only advance if the level is considered complete OR you spend a **Level Skip** item from your received stock.
+
+- When locked and out of skips, pressing Enter does nothing. The HUD shows your current skip count (`skips:N`).
+- Level Skip items are added to the multiworld pool (one per level on average).
+- Using a skip consumes one from your stock permanently.
+
+Set `level_skip: disabled` to remove the Enter gate entirely — you can advance at any time without needing a skip, and no Level Skip items are added to the pool.
 
 ## Goal
 
