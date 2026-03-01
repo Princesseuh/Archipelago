@@ -66,9 +66,10 @@ The default goal is **`levels_completed`** with 3 levels required.
 The number of locations depends on the `num_levels` option (default 10):
 - **Bar locations** — 32 bars × `num_levels`. A bar is checked the moment you collect it.
 - **Level completion locations** — one per level (`Level N - Complete`), sent when the level is finished.
+- **Connected to Archipelago** — a single special location sent automatically the moment you connect to the server. Always reachable with no requirements.
 
-With the default `num_levels: 10` this gives **330 locations** (320 bar + 10 completion).
-With `num_levels: 30` (maximum) this gives **990 locations** (960 bar + 30 completion).
+With the default `num_levels: 10` this gives **331 locations** (320 bar + 10 completion + 1 connected).
+With `num_levels: 30` (maximum) this gives **991 locations** (960 bar + 30 completion + 1 connected).
 
 ### Level Complete Condition
 
@@ -124,7 +125,7 @@ Set `level_skip: disabled` to remove the Enter gate entirely — you can advance
 
 When `grapple_unlock: enabled` (the default), the grapple is **completely non-functional** at the start of the game. You cannot fire it at all — since there are no floors or platforms, you will simply fall until you hit the water surface. No bars can be collected and no levels can be completed until you receive the **Grapple Unlock** item from the multiworld.
 
-- The item is guaranteed to appear in **sphere 1** — it will always be reachable by another player immediately, so you will never wait forever.
+- The item is guaranteed to appear in **sphere 1** — it will always be reachable by another player immediately, so you will never wait forever. This is enforced by the **Connected to Archipelago** location (sent the moment you connect), which is always in sphere 0 and guarantees the generator has a reachable slot to place Grapple Unlock into, even in a solo game.
 - Once received, the grapple works normally.
 
 Set `grapple_unlock: disabled` to start with a working grapple and remove the item from the pool entirely.

@@ -36,6 +36,7 @@ MAX_LEVELS     = 30
 NUM_LEVELS     = 10  # default; actual value comes from options at generation time
 BARS_PER_LEVEL = 32
 LEVEL_COMPLETE_OFFSET = 10_000  # completion IDs: BASE_ID + 10_000 + levelIndex
+LOCATION_CONNECTED    = BASE_ID + 20_000  # "Connected to Archipelago" — Menu region, no access rule
 
 # These reflect the maximum possible counts for the static location registry
 _MAX_BAR_LOCATIONS        = MAX_LEVELS * BARS_PER_LEVEL   # 960
@@ -275,6 +276,7 @@ LOCATION_TABLE: Dict[str, int] = {
         _level_complete_name(lvl): _level_complete_id(lvl)
         for lvl in range(MAX_LEVELS)
     },
+    "Connected to Archipelago": LOCATION_CONNECTED,
 }
 
 
@@ -321,7 +323,7 @@ class FloatingPointWorld(World):
 
     def create_items(self) -> None:
         num_levels   = self.options.num_levels.value
-        total_locs   = num_levels * BARS_PER_LEVEL + num_levels  # bars + completions
+        total_locs   = num_levels * BARS_PER_LEVEL + num_levels + 1  # bars + completions + Connected
         pool: List[FloatingPointItem] = []
         trap_pct   = self.options.trap_percentage.value / 100.0
         trap_names = [i.name for i in ITEM_TABLE if i.classification == ItemClassification.trap]
@@ -362,6 +364,14 @@ class FloatingPointWorld(World):
         num_levels = self.options.num_levels.value
         menu = Region("Menu", self.player, self.multiworld)
         self.multiworld.regions.append(menu)
+
+        # "Connected to Archipelago" — always reachable, no access rule.
+        # This is the sphere-0 anchor that lets the generator place Grapple Unlock
+        # in sphere 1, avoiding deadlock in solo games.
+        connected_loc = FloatingPointLocation(
+            self.player, "Connected to Archipelago", LOCATION_CONNECTED, menu
+        )
+        menu.locations.append(connected_loc)
 
         prev_region = menu
         for lvl in range(num_levels):
