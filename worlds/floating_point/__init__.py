@@ -113,9 +113,12 @@ class BarsRequired(Range):
 
 class NumLevels(Range):
     """
-    How many levels to include in the multiworld.
+    How many levels have AP checks.
+    Floating Point generates levels infinitely — this controls how many presses
+    of Enter produce bar and completion checks. After num_levels presses the game
+    keeps going but no new checks are generated.
     Each level contributes 32 bar locations and 1 level-complete location.
-    Default is 10 (320 bar + 10 completion = 330 locations total).
+    Default is 10 (320 bar + 10 completion = 330 locations, plus 1 connected).
     """
     display_name = "Number of Levels"
     range_start = 1

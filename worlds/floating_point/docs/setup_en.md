@@ -31,6 +31,14 @@ Fill in the connection panel (**F1**):
 
 Click **Connect**. A green `[AP]` indicator will appear in the top-right corner when connected.
 
+## How levels work
+
+Floating Point generates levels **infinitely** — there is no built-in level count. Each time you press Enter the game procedurally creates a new level and resets your score. The mod imposes structure on top of this by tracking how many times you have pressed Enter and mapping each press to a numbered AP "level".
+
+`num_levels` controls how many of those presses have AP checks attached. With `num_levels: 10` (the default), the first 10 levels have 32 bar checks and 1 completion check each. Pressing Enter an 11th time works fine — the game keeps going — but no new AP checks are generated beyond the first `num_levels` levels.
+
+---
+
 ## YAML Options
 
 ```yaml
@@ -39,7 +47,7 @@ name: YourName
 
 Floating Point:
   goal_type: levels_completed       # See Goal Types below
-  num_levels: 10                    # 1–30: how many levels to include
+  num_levels: 10                    # 1–30: how many levels have AP checks
   levels_required: 10               # [goal_type: levels_completed] must be <= num_levels
   goal_score: 5000000               # [goal_type: score] target score
   bars_required: 320                # [goal_type: bars_collected] total bars
@@ -59,7 +67,7 @@ Floating Point:
 | `bars_collected`   | Collect `bars_required` total bars across all levels.                    |
 | `all_locations`    | Collect every bar check across all `num_levels` levels.                  |
 
-The default goal is **`levels_completed`** with 3 levels required.
+The default goal is **`levels_completed`** with all 10 levels required.
 
 ## Locations
 
