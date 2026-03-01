@@ -45,6 +45,7 @@ Floating Point:
   bars_required: 96                 # [goal_type: bars_collected] total bars
   trap_percentage: 15               # 0–50: % of filler slots that are traps
   level_complete_condition: all_bars  # all_bars or press_enter (see below)
+  water_access: enabled             # enabled or disabled (see below)
 ```
 
 ## Goal Types
@@ -88,9 +89,21 @@ With `num_levels: 30` (maximum) this gives **990 locations** (960 bar + 30 compl
 | Score Bonus (Medium)    | +2000 score                                |
 | Score Bonus (Large)     | +5000 score                                |
 | Extra Level             | Counts as 1 completed level toward goal   |
+| Water Access            | Unlocks going below the water surface (see below) |
 | Gravity Spike (Trap)    | Sudden downward impulse                    |
 | Decay Spike (Trap)      | +10 decay rate for 10 seconds              |
 | Grapple Disconnect (Trap)| Force-releases your grapple              |
+
+## Water Access
+
+When `water_access: enabled` (the default), the water surface at y=0 acts as a **solid floor** until you receive the **Water Access** item from the multiworld. While locked:
+
+- You cannot go below the water surface — you bounce off it as if it were solid ground.
+- Bars 25–32 on each level are logically gated behind Water Access, making them unreachable until unlocked.
+
+Once you receive Water Access, the water returns to its normal buoyant behaviour and those bars become reachable.
+
+Set `water_access: disabled` to skip the gate entirely — water behaves normally from the start and no Water Access item is added to the pool.
 
 ## Goal
 
