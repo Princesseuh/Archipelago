@@ -9,15 +9,20 @@ Gameplay model
 --------------
 * The player swings through procedurally generated levels collecting red bars.
 * Bars grow taller (worth more) the faster the player is moving.
-* Each level has 32 bars; the player advances by pressing Enter.
+* Each level has 32 bars; the player advances by pressing Enter freely at any time.
+* Going below the water surface requires the Water Access item.
 
 Archipelago model
 -----------------
-Locations : Collecting each of the 32 bars across up to N levels (configurable, default 10)
-            = bar locations, plus one completion check per level. Total varies with num_levels.
-Items     : Physics upgrades (retract speed, decay reduction, impact reduction),
-            score bonuses, and traps (gravity spike, decay spike, grapple disconnect).
-Goals     : One of four configurable goal types (see GoalType option).
+Locations (2*N + 23 total, default N=50 → 123):
+  N  cumulative-bar milestones : "Total Bars - N Collected" (N = 8, 16, ..., N*8)
+  N  level completion checks   : "Level Complete 1..N" — gated behind Water Access
+  16 single-level best-bar     : "Best Single Level - N Bars" (N = 2, 4, ..., 32)
+   6 score milestones          : "Score - 50k/100k/250k/500k/750k/1M"
+   1 connected                 : "Connected to Archipelago"
+
+Items : Physics upgrades, score bonuses, traps.
+Goals : One of three configurable goal types (see GoalType option).
 """
 
 from dataclasses import dataclass
@@ -25,36 +30,81 @@ from typing import Dict, Any, List
 
 from BaseClasses import Region, Location, Item, ItemClassification, Tutorial
 from worlds.AutoWorld import World, WebWorld
-from Options import PerGameCommonOptions, Choice, Range
+from Options import PerGameCommonOptions, Choice, Range, ItemsAccessibility
 
 
 # ── Base IDs ────────────────────────────────────────────────────────────────
 BASE_ID = 45_000_000
 
-# Maximum number of levels supported (used to size the static location ID table)
-MAX_LEVELS     = 30
-NUM_LEVELS     = 10  # default; actual value comes from options at generation time
-BARS_PER_LEVEL = 32
-LEVEL_COMPLETE_OFFSET = 10_000  # completion IDs: BASE_ID + 10_000 + levelIndex
-LOCATION_CONNECTED    = BASE_ID + 20_000  # "Connected to Archipelago" — Menu region, no access rule
+# ── Cumulative-bar milestones ────────────────────────────────────────────────
+BAR_MILESTONE_STEP = 8  # thresholds: 8, 16, 24, ...
 
-# These reflect the maximum possible counts for the static location registry
-_MAX_BAR_LOCATIONS        = MAX_LEVELS * BARS_PER_LEVEL   # 960
-_MAX_COMPLETION_LOCATIONS = MAX_LEVELS                    # 30
-_MAX_LOCATIONS            = _MAX_BAR_LOCATIONS + _MAX_COMPLETION_LOCATIONS  # 990
+def _cumulative_bar_threshold(i: int) -> int:
+    return (i + 1) * BAR_MILESTONE_STEP
 
-# Goal type constants — must stay in sync with GoalType in C# LocationManager
+def _cumulative_bar_milestone_id(i: int) -> int:
+    return BASE_ID + i
+
+def _cumulative_bar_milestone_name(i: int) -> str:
+    return f"Total Bars - {_cumulative_bar_threshold(i)} Collected"
+
+# ── Level completion locations ───────────────────────────────────────────────
+LEVEL_COMPLETE_OFFSET = 10_000
+
+def _level_complete_id(i: int) -> int:
+    return BASE_ID + LEVEL_COMPLETE_OFFSET + i
+
+def _level_complete_name(i: int) -> str:
+    return f"Level Complete {i + 1}"
+
+# ── "Connected" ─────────────────────────────────────────────────────────────
+LOCATION_CONNECTED = BASE_ID + 20_000
+
+# ── Single-level best-bar milestones ────────────────────────────────────────
+# 16 entries: 2, 4, 6, ..., 32 (every 2 bars)
+SINGLE_LEVEL_BAR_MILESTONES = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32]
+BAR_MILESTONE_OFFSET        = 30_000
+# Milestones with threshold strictly above this value require Water Access
+WATER_GATED_BAR_START       = 24
+
+def _single_level_milestone_id(i: int) -> int:
+    return BASE_ID + BAR_MILESTONE_OFFSET + i
+
+def _single_level_milestone_name(i: int) -> str:
+    return f"Best Single Level - {SINGLE_LEVEL_BAR_MILESTONES[i]} Bars"
+
+# ── Score milestones ─────────────────────────────────────────────────────────
+SCORE_MILESTONES       = [50_000, 100_000, 250_000, 500_000, 750_000, 1_000_000]
+SCORE_MILESTONE_OFFSET = 40_000
+
+def _score_milestone_id(i: int) -> int:
+    return BASE_ID + SCORE_MILESTONE_OFFSET + i
+
+def _score_milestone_name(i: int) -> str:
+    v = SCORE_MILESTONES[i]
+    if v >= 1_000_000:
+        label = f"{v // 1_000_000}M"
+    elif v >= 1_000:
+        label = f"{v // 1_000}k"
+    else:
+        label = str(v)
+    return f"Score - {label}"
+
+# ── Goal constants ───────────────────────────────────────────────────────────
 GOAL_LEVELS_COMPLETED = 0
-GOAL_SCORE            = 1
 GOAL_BARS_COLLECTED   = 2
 GOAL_ALL_LOCATIONS    = 3
 
-# Level complete condition constants — must stay in sync with LevelCompleteCondition in C#
-LEVEL_COMPLETE_ALL_BARS   = 0
-LEVEL_COMPLETE_PRESS_ENTER = 1
+# Fixed location count (doesn't depend on num_levels)
+FIXED_LOCATION_COUNT = (
+    1 +                              # Connected
+    len(SINGLE_LEVEL_BAR_MILESTONES) +  # 16
+    len(SCORE_MILESTONES)            # 4
+)  # = 21
 
-# Water access — bars 24-31 (0-based) per level are gated behind Water Access
-WATER_GATED_BAR_START = 24   # first bar index (0-based) that requires Water Access
+def _total_locations(num_levels: int) -> int:
+    """Total location count for a given num_levels value (= 2*N + 21)."""
+    return 2 * num_levels + FIXED_LOCATION_COUNT
 
 
 # ── Options ──────────────────────────────────────────────────────────────────
@@ -62,91 +112,59 @@ class GoalType(Choice):
     """
     What you need to do to complete your goal.
 
-    levels_completed: Complete a set number of levels (press Enter to advance,
-                      collecting all bars on the level). Default and recommended.
-    score:            Accumulate a target total score across all levels.
+    levels_completed: Complete a set number of levels (requires Water Access since
+                      level completions are water-gated). Default and recommended.
     bars_collected:   Collect a set total number of bars across all levels.
-    all_locations:    Collect every bar check available in the multiworld (320 total).
+    all_locations:    Collect every location in the multiworld.
     """
     display_name = "Goal Type"
     option_levels_completed = GOAL_LEVELS_COMPLETED
-    option_score            = GOAL_SCORE
     option_bars_collected   = GOAL_BARS_COLLECTED
     option_all_locations    = GOAL_ALL_LOCATIONS
     default = GOAL_LEVELS_COMPLETED
 
 
+class NumLevels(Range):
+    """
+    Number of levels tracked by the randomizer.
+    Controls both the number of cumulative-bar milestone locations and the number of
+    level-completion check locations. Total location count = 2 * num_levels + 21.
+    """
+    display_name = "Number of Levels"
+    range_start = 1
+    range_end   = 200
+    default     = 50
+
+
 class LevelsRequired(Range):
     """
-    [Goal: levels_completed] Number of levels that must be fully completed.
-    Must be <= num_levels. Ignored for other goal types.
+    [Goal: levels_completed] Number of levels that must be completed to win.
+    Level completions require Water Access. Must be <= num_levels.
+    Ignored for other goal types.
     """
     display_name = "Levels Required"
     range_start = 1
-    range_end = MAX_LEVELS
-    default = 10
-
-
-class GoalScore(Range):
-    """
-    [Goal: score] Total score that must be accumulated across all levels to win.
-    A single level typically yields around 1,000,000 points; upgrades increase
-    this significantly over a full run.
-    Ignored for other goal types.
-    """
-    display_name = "Goal Score"
-    range_start = 100_000
-    range_end = 50_000_000
-    default = 5_000_000
+    range_end   = 200   # Actual cap enforced in set_rules via min(value, num_levels)
+    default     = 50
 
 
 class BarsRequired(Range):
     """
     [Goal: bars_collected] Total number of bars to collect across all levels.
-    Must be <= num_levels * 32. Ignored for other goal types.
+    Ignored for other goal types.
     """
     display_name = "Bars Required"
     range_start = 10
-    range_end = _MAX_BAR_LOCATIONS
-    default = 320   # all bars across default 10 levels
-
-
-class NumLevels(Range):
-    """
-    How many levels have AP checks.
-    Floating Point generates levels infinitely — this controls how many presses
-    of Enter produce bar and completion checks. After num_levels presses the game
-    keeps going but no new checks are generated.
-    Each level contributes 32 bar locations and 1 level-complete location.
-    Default is 10 (320 bar + 10 completion = 330 locations, plus 1 connected).
-    """
-    display_name = "Number of Levels"
-    range_start = 1
-    range_end = MAX_LEVELS
-    default = 10
+    range_end   = 6400   # 200 levels × 32 bars
+    default     = 400
 
 
 class TrapPercentage(Range):
     """Percentage of filler item slots that are traps."""
     display_name = "Trap Percentage"
     range_start = 0
-    range_end = 50
-    default = 15
-
-
-class LevelCompleteCondition(Choice):
-    """
-    What counts as completing a level.
-
-    all_bars:    All 32 bars on the level must be collected. A "Level N - Complete"
-                 check is sent when the last bar is picked up.
-    press_enter: Pressing Enter to advance to the next level sends the completion
-                 check immediately, regardless of how many bars were collected.
-    """
-    display_name = "Level Complete Condition"
-    option_all_bars    = LEVEL_COMPLETE_ALL_BARS
-    option_press_enter = LEVEL_COMPLETE_PRESS_ENTER
-    default = LEVEL_COMPLETE_ALL_BARS
+    range_end   = 50
+    default     = 22
 
 
 class WaterAccess(Choice):
@@ -154,26 +172,11 @@ class WaterAccess(Choice):
     Whether the Water Access item is required to go below the water surface.
 
     enabled:  The water surface acts as a solid floor until you receive the
-              Water Access item from the multiworld. Bars 25-32 on every level
-              are logically gated behind this item.
+              Water Access item. Level completion checks and single-level
+              milestones > 24 bars are gated behind this item.
     disabled: Water behaves normally from the start — no gate, no item.
     """
     display_name = "Water Access"
-    option_enabled  = 1
-    option_disabled = 0
-    default = 1
-
-
-class LevelSkip(Choice):
-    """
-    Whether Level Skip items are added to the pool and Enter is gated.
-
-    enabled:  You cannot press Enter to advance to the next level unless the
-              level is complete OR you have a Level Skip available. Level Skip
-              items are added to the multiworld pool (one per level on average).
-    disabled: Enter always works freely. No Level Skip items are added.
-    """
-    display_name = "Level Skip"
     option_enabled  = 1
     option_disabled = 0
     default = 1
@@ -183,12 +186,9 @@ class GrappleUnlock(Choice):
     """
     Whether the Grapple Unlock item is required before you can use the grapple.
 
-    enabled:  The grapple is completely non-functional at the start. You cannot
-              fire it at all — without a grapple you can only fall. No bar
-              locations or level completions are reachable until the Grapple
-              Unlock item arrives from the multiworld. It is guaranteed to
-              appear in sphere 1 (reachable by another player immediately).
-    disabled: The grapple works from the start. No Grapple Unlock item is added.
+    enabled:  The grapple is completely non-functional at the start. It is
+              guaranteed to appear in sphere 1.
+    disabled: The grapple works from the start.
     """
     display_name = "Grapple Unlock"
     option_enabled  = 1
@@ -196,18 +196,32 @@ class GrappleUnlock(Choice):
     default = 1
 
 
+class StartingRetractSpeed(Choice):
+    """
+    How fast the grapple retract starts before any Retract upgrades are received.
+
+    very_slow:    retractSpeedBase=2,  retractSpeedBonus=3  (very sluggish — upgrades feel huge)
+    moderate:     retractSpeedBase=8,  retractSpeedBonus=12 (halfway to vanilla)
+    near_default: retractSpeedBase=13, retractSpeedBonus=22 (close to vanilla — upgrades are a small bonus)
+    """
+    display_name = "Starting Retract Speed"
+    option_very_slow    = 0
+    option_moderate     = 1
+    option_near_default = 2
+    default = 0
+
+
 @dataclass
 class FPOptions(PerGameCommonOptions):
-    goal_type:                GoalType
-    num_levels:               NumLevels
-    levels_required:          LevelsRequired
-    goal_score:               GoalScore
-    bars_required:            BarsRequired
-    trap_percentage:          TrapPercentage
-    level_complete_condition: LevelCompleteCondition
-    water_access:             WaterAccess
-    level_skip:               LevelSkip
-    grapple_unlock:           GrappleUnlock
+    accessibility:          ItemsAccessibility
+    goal_type:              GoalType
+    num_levels:             NumLevels
+    levels_required:        LevelsRequired
+    bars_required:          BarsRequired
+    trap_percentage:        TrapPercentage
+    water_access:           WaterAccess
+    grapple_unlock:         GrappleUnlock
+    starting_retract_speed: StartingRetractSpeed
 
 
 # ── Items ────────────────────────────────────────────────────────────────────
@@ -224,27 +238,29 @@ ITEM_TABLE: List[FPItemData] = [
     FPItemData("Score Bonus (Small)",    BASE_ID + 0,  ItemClassification.filler,      count=10),
     FPItemData("Score Bonus (Medium)",   BASE_ID + 1,  ItemClassification.useful,      count=5),
     FPItemData("Score Bonus (Large)",    BASE_ID + 2,  ItemClassification.useful,      count=3),
-    # Progression (physics upgrades)
-    FPItemData("Retract Speed Up",       BASE_ID + 3,  ItemClassification.progression, count=6),
-    FPItemData("Retract Bonus Up",       BASE_ID + 4,  ItemClassification.progression, count=6),
-    FPItemData("Bar Decay Rate Down",    BASE_ID + 5,  ItemClassification.progression, count=5),
-    FPItemData("Bar Decay Factor Down",  BASE_ID + 6,  ItemClassification.progression, count=5),
-    FPItemData("Impact Penalty Down",    BASE_ID + 7,  ItemClassification.useful,      count=5),
-    FPItemData("Bar Threshold Down",     BASE_ID + 8,  ItemClassification.useful,      count=4),
-    # Progression (level gating)
-    FPItemData("Extra Level",            BASE_ID + 9,  ItemClassification.progression, count=MAX_LEVELS),
-    # Progression (water gating)
+    # Physics upgrades (all start hobbled, each item upgrades toward/past default)
+    # retractSpeedBase:   start=2,      step=+1.0,    count=20 → max 22  (vanilla 15)
+    FPItemData("Retract Speed Up",       BASE_ID + 3,  ItemClassification.progression, count=20),
+    # retractSpeedBonus:  start=3,      step=+2.0,    count=15 → max 33  (vanilla 25)
+    FPItemData("Retract Bonus Up",       BASE_ID + 4,  ItemClassification.progression, count=15),
+    # pointDecayRate:     start=26,     step=-0.6,    count=10 → min 20  (vanilla 20)
+    FPItemData("Bar Decay Rate Down",    BASE_ID + 5,  ItemClassification.progression, count=10),
+    # pointDecayFactor:   start=0.9955, step=+0.00025,count=10 → max 0.998 (vanilla 0.998)
+    FPItemData("Bar Decay Factor Down",  BASE_ID + 6,  ItemClassification.progression, count=10),
+    # pointImpactPenalty: start=26,     step=-0.6,    count=10 → min 20  (vanilla 20)
+    FPItemData("Impact Penalty Down",    BASE_ID + 7,  ItemClassification.progression, count=10),
+    # barHeightConsideredGood: start=6500, step=-500, count=8 → min 2500 (vanilla 6000)
+    FPItemData("Bar Threshold Down",     BASE_ID + 8,  ItemClassification.progression, count=8),
+    # Water / grapple gating
     FPItemData("Water Access",           BASE_ID + 10, ItemClassification.progression, count=1),
-    # Progression (level skip)
-    FPItemData("Level Skip",             BASE_ID + 11, ItemClassification.progression, count=MAX_LEVELS),
-    # Progression (grapple payout — starts at 4, each item adds +2, caps at default 14)
-    FPItemData("Grapple Payout Speed Up", BASE_ID + 12, ItemClassification.progression, count=5),
-    # Progression (grapple unlock — hard gate, guaranteed sphere 1)
+    # grapplePayoutSpeed: start=1,      step=+1.5,    count=10 → max 16  (vanilla ~4)
+    FPItemData("Grapple Payout Speed Up", BASE_ID + 12, ItemClassification.progression, count=10),
     FPItemData("Grapple Unlock",          BASE_ID + 13, ItemClassification.progression, count=1),
     # Traps
     FPItemData("Gravity Spike (Trap)",        BASE_ID + 20, ItemClassification.trap, count=5),
     FPItemData("Decay Spike (Trap)",          BASE_ID + 21, ItemClassification.trap, count=5),
     FPItemData("Grapple Disconnect (Trap)",   BASE_ID + 22, ItemClassification.trap, count=5),
+    FPItemData("Level Skip (Trap)",           BASE_ID + 11, ItemClassification.trap, count=4),
 ]
 
 ITEM_NAME_TO_DATA: Dict[str, FPItemData] = {i.name: i for i in ITEM_TABLE}
@@ -254,34 +270,31 @@ def _build_item_name_to_id() -> Dict[str, int]:
     return {i.name: i.item_id for i in ITEM_TABLE}
 
 
-# ── Locations ────────────────────────────────────────────────────────────────
-def _location_name(level: int, bar: int) -> str:
-    return f"Level {level + 1} - Bar {bar + 1}"
-
-
-def _location_id(level: int, bar: int) -> int:
-    return BASE_ID + level * BARS_PER_LEVEL + bar
-
-
-def _level_complete_name(level: int) -> str:
-    return f"Level {level + 1} - Complete"
-
-
-def _level_complete_id(level: int) -> int:
-    return BASE_ID + LEVEL_COMPLETE_OFFSET + level
-
+# ── Static (game-wide) location name→id for all possible locations ───────────
+# AP requires location_name_to_id to be a class-level dict covering every
+# location that could ever be generated across any num_levels value (1–200).
+# We register all 2*200+21 = 421 possible locations here; per-world instances
+# only *add* the subset they actually use to regions.
+_MAX_LEVELS = 200
 
 LOCATION_TABLE: Dict[str, int] = {
     **{
-        _location_name(lvl, bar): _location_id(lvl, bar)
-        for lvl in range(MAX_LEVELS)
-        for bar in range(BARS_PER_LEVEL)
+        _cumulative_bar_milestone_name(i): _cumulative_bar_milestone_id(i)
+        for i in range(_MAX_LEVELS)
     },
     **{
-        _level_complete_name(lvl): _level_complete_id(lvl)
-        for lvl in range(MAX_LEVELS)
+        _level_complete_name(i): _level_complete_id(i)
+        for i in range(_MAX_LEVELS)
     },
     "Connected to Archipelago": LOCATION_CONNECTED,
+    **{
+        _single_level_milestone_name(i): _single_level_milestone_id(i)
+        for i in range(len(SINGLE_LEVEL_BAR_MILESTONES))
+    },
+    **{
+        _score_milestone_name(i): _score_milestone_id(i)
+        for i in range(len(SCORE_MILESTONES))
+    },
 }
 
 
@@ -327,35 +340,55 @@ class FloatingPointWorld(World):
         return FloatingPointItem(name, data.classification, data.item_id, self.player)
 
     def create_items(self) -> None:
-        num_levels   = self.options.num_levels.value
-        total_locs   = num_levels * BARS_PER_LEVEL + num_levels + 1  # bars + completions + Connected
-        pool: List[FloatingPointItem] = []
+        num_levels = self.options.num_levels.value
+        total_locs = _total_locations(num_levels)
+
         trap_pct   = self.options.trap_percentage.value / 100.0
         trap_names = [i.name for i in ITEM_TABLE if i.classification == ItemClassification.trap]
         water_on   = self.options.water_access.value == 1
-        skip_on    = self.options.level_skip.value == 1
         grapple_on = self.options.grapple_unlock.value == 1
 
-        # Items excluded from the pool based on options
         excluded = set()
         if not water_on:
             excluded.add("Water Access")
-        if not skip_on:
-            excluded.add("Level Skip")
         if not grapple_on:
             excluded.add("Grapple Unlock")
 
-        # Add fixed-count non-trap items (respecting exclusions)
+        # Split items into tiers so we can trim lower-priority ones when
+        # total_locs is small (e.g. num_levels=10 → only 41 slots).
+        progression_items: List[FloatingPointItem] = []
+        useful_items: List[FloatingPointItem] = []
+        filler_items: List[FloatingPointItem] = []
+
         for data in ITEM_TABLE:
             if data.classification == ItemClassification.trap:
                 continue
             if data.name in excluded:
                 continue
+            target = (
+                progression_items if data.classification == ItemClassification.progression
+                else useful_items  if data.classification == ItemClassification.useful
+                else filler_items
+            )
             for _ in range(data.count):
-                pool.append(self.create_item(data.name))
+                target.append(self.create_item(data.name))
 
-        # Pad to total_locs with traps or small bonuses
+        # Build pool: always include all progression items, then fill remaining
+        # slots with useful then filler, trimming as needed.
+        pool: List[FloatingPointItem] = list(progression_items)
+
         remaining = total_locs - len(pool)
+        if remaining > 0:
+            # Add useful items up to the remaining budget
+            pool.extend(useful_items[:remaining])
+            remaining = total_locs - len(pool)
+
+        if remaining > 0:
+            # Add filler items up to the remaining budget
+            pool.extend(filler_items[:remaining])
+            remaining = total_locs - len(pool)
+
+        # Pad any remaining slots with traps or Score Bonus (Small)
         for _ in range(remaining):
             if trap_names and self.random.random() < trap_pct:
                 name = self.random.choice(trap_names)
@@ -365,115 +398,229 @@ class FloatingPointWorld(World):
 
         self.multiworld.itempool += pool
 
+        # Guarantee Grapple Unlock is reachable in sphere 1 — without it the
+        # player can't collect any bars at all.
+        if grapple_on:
+            self.multiworld.early_items[self.player]["Grapple Unlock"] = 1
+
     def create_regions(self) -> None:
         num_levels = self.options.num_levels.value
+
         menu = Region("Menu", self.player, self.multiworld)
         self.multiworld.regions.append(menu)
 
-        # "Connected to Archipelago" — always reachable, no access rule.
-        # This is the sphere-0 anchor that lets the generator place Grapple Unlock
-        # in sphere 1, avoiding deadlock in solo games.
-        connected_loc = FloatingPointLocation(
+        # All locations live in Menu — no level-region gating.
+        # Access rules are applied in set_rules().
+
+        # Connected — always reachable
+        menu.locations.append(FloatingPointLocation(
             self.player, "Connected to Archipelago", LOCATION_CONNECTED, menu
-        )
-        menu.locations.append(connected_loc)
+        ))
 
-        prev_region = menu
-        for lvl in range(num_levels):
-            region = Region(f"Level {lvl + 1}", self.player, self.multiworld)
-            self.multiworld.regions.append(region)
+        # Cumulative-bar milestones (N of them)
+        for i in range(num_levels):
+            menu.locations.append(FloatingPointLocation(
+                self.player, _cumulative_bar_milestone_name(i),
+                _cumulative_bar_milestone_id(i), menu
+            ))
 
-            # Bar locations
-            for bar in range(BARS_PER_LEVEL):
-                loc = FloatingPointLocation(
-                    self.player, _location_name(lvl, bar), _location_id(lvl, bar), region
-                )
-                region.locations.append(loc)
+        # Level completion locations (N of them)
+        for i in range(num_levels):
+            menu.locations.append(FloatingPointLocation(
+                self.player, _level_complete_name(i),
+                _level_complete_id(i), menu
+            ))
 
-            # Level completion location
-            completion_loc = FloatingPointLocation(
-                self.player, _level_complete_name(lvl), _level_complete_id(lvl), region
-            )
-            region.locations.append(completion_loc)
+        # Single-level best-bar milestones (always 16)
+        for i in range(len(SINGLE_LEVEL_BAR_MILESTONES)):
+            menu.locations.append(FloatingPointLocation(
+                self.player, _single_level_milestone_name(i),
+                _single_level_milestone_id(i), menu
+            ))
 
-            if lvl == 0:
-                menu.connect(region)
-            else:
-                prev_region.connect(
-                    region,
-                    rule=lambda state, l=lvl: (
-                        state.has("Extra Level", self.player, l) or
-                        state.has("Retract Speed Up", self.player, l * 2)
-                    )
-                )
-            prev_region = region
+        # Score milestones (always 4)
+        for i in range(len(SCORE_MILESTONES)):
+            menu.locations.append(FloatingPointLocation(
+                self.player, _score_milestone_name(i),
+                _score_milestone_id(i), menu
+            ))
 
     def set_rules(self) -> None:
-        goal       = self.options.goal_type.value
         num_levels = self.options.num_levels.value
-        # Clamp levels_required and bars_required to what's actually available
-        lvl_req    = min(self.options.levels_required.value, num_levels)
-        score_req  = self.options.goal_score.value
-        bars_req   = min(self.options.bars_required.value, num_levels * BARS_PER_LEVEL)
         water_on   = self.options.water_access.value == 1
         grapple_on = self.options.grapple_unlock.value == 1
 
-        # Grapple Unlock gate: every single location requires the grapple.
-        # The player can reach any level region freely (no connection rule), but
-        # cannot collect any bar or complete any level without the grapple.
-        # This guarantees the AP generator places Grapple Unlock in sphere 1.
-        if grapple_on:
-            for lvl in range(num_levels):
-                for bar in range(BARS_PER_LEVEL):
-                    loc = self.multiworld.get_location(_location_name(lvl, bar), self.player)
-                    loc.access_rule = lambda state: state.has("Grapple Unlock", self.player)
-                completion_loc = self.multiworld.get_location(_level_complete_name(lvl), self.player)
-                completion_loc.access_rule = lambda state: state.has("Grapple Unlock", self.player)
+        def has_grapple(state):
+            return state.has("Grapple Unlock", self.player)
 
-        # Water Access gate: bars 24-31 (0-based) on every level require Water Access.
-        # If grapple_unlock is also on, AND the two rules together.
-        if water_on:
-            for lvl in range(num_levels):
-                for bar in range(WATER_GATED_BAR_START, BARS_PER_LEVEL):
-                    loc = self.multiworld.get_location(_location_name(lvl, bar), self.player)
-                    if grapple_on:
-                        loc.access_rule = lambda state: (
-                            state.has("Grapple Unlock", self.player) and
-                            state.has("Water Access", self.player)
+        def has_water(state):
+            return state.has("Water Access", self.player)
+
+        def has_both(state):
+            return has_grapple(state) and has_water(state)
+
+        # Grapple gate: cumulative-bar, completion, and best-bar locations all
+        # require the grapple (can't collect bars without it).
+        # Cumulative-bar milestones also form a chain: each requires the previous,
+        # so AP can't place "300 bars" before "8 bars" in the item sphere order.
+        if grapple_on:
+            for i in range(num_levels):
+                loc = self.multiworld.get_location(_cumulative_bar_milestone_name(i), self.player)
+                if i == 0:
+                    loc.access_rule = has_grapple
+                else:
+                    prev = _cumulative_bar_milestone_name(i - 1)
+                    def make_chain_rule(prev_loc):
+                        def rule(state):
+                            return has_grapple(state) and state.can_reach(prev_loc, "Location", self.player)
+                        return rule
+                    loc.access_rule = make_chain_rule(prev)
+
+            for i in range(num_levels):
+                loc = self.multiworld.get_location(_level_complete_name(i), self.player)
+                if i == 0:
+                    loc.access_rule = has_grapple
+                else:
+                    prev = _level_complete_name(i - 1)
+                    def make_level_chain_grapple(prev_loc):
+                        def rule(state):
+                            return has_grapple(state) and state.can_reach(prev_loc, "Location", self.player)
+                        return rule
+                    loc.access_rule = make_level_chain_grapple(prev)
+
+            for i in range(len(SINGLE_LEVEL_BAR_MILESTONES)):
+                loc = self.multiworld.get_location(_single_level_milestone_name(i), self.player)
+                loc.access_rule = has_grapple
+
+            # Score milestones also require grapple — can't build score without it.
+            # Higher score milestones additionally require total physics upgrades.
+            # Thresholds scaled to match the larger upgrade pool (83 progression items).
+            SCORE_UPGRADE_REQS = [0, 4, 10, 18, 26, 35]  # indexed by SCORE_MILESTONES position
+            for i in range(len(SCORE_MILESTONES)):
+                req = SCORE_UPGRADE_REQS[i]
+                def make_score_rule(r):
+                    def rule(state):
+                        if not has_grapple(state):
+                            return False
+                        total = (
+                            state.count("Retract Speed Up",      self.player) +
+                            state.count("Retract Bonus Up",      self.player) +
+                            state.count("Bar Decay Rate Down",   self.player) +
+                            state.count("Bar Decay Factor Down", self.player) +
+                            state.count("Impact Penalty Down",   self.player) +
+                            state.count("Grapple Payout Speed Up", self.player)
                         )
-                    else:
-                        loc.access_rule = lambda state: state.has("Water Access", self.player)
+                        return total >= r
+                    return rule
+                loc = self.multiworld.get_location(_score_milestone_name(i), self.player)
+                loc.access_rule = make_score_rule(req)
+
+        # Water gate: level completions always require Water Access + 2 retract upgrades.
+        # Single-level milestones > WATER_GATED_BAR_START also require Water Access + 2 retract upgrades.
+        # The retract requirement reflects that the water current pushes you away without enough speed.
+        if water_on:
+            def has_water_and_retract(state):
+                retract = (state.count("Retract Speed Up", self.player) +
+                           state.count("Retract Bonus Up", self.player))
+                water = state.has("Water Access", self.player)
+                return water and retract >= 2
+
+            def has_all_and_retract(state):
+                return has_grapple(state) and has_water_and_retract(state)
+
+            water_rule = has_all_and_retract if grapple_on else has_water_and_retract
+
+            for i in range(num_levels):
+                loc = self.multiworld.get_location(_level_complete_name(i), self.player)
+                if i == 0:
+                    loc.access_rule = water_rule
+                else:
+                    prev = _level_complete_name(i - 1)
+                    def make_level_chain_rule(prev_loc, base_rule):
+                        def rule(state):
+                            return base_rule(state) and state.can_reach(prev_loc, "Location", self.player)
+                        return rule
+                    loc.access_rule = make_level_chain_rule(prev, water_rule)
+
+            for i, threshold in enumerate(SINGLE_LEVEL_BAR_MILESTONES):
+                if threshold > WATER_GATED_BAR_START:
+                    loc = self.multiworld.get_location(_single_level_milestone_name(i), self.player)
+                    loc.access_rule = water_rule
+
+        # Score milestones require physics upgrades regardless of grapple gate.
+        # (The grapple gate block above already sets rules when grapple_on is True;
+        #  here we handle the requirement when grapple_on is False.)
+        if not grapple_on:
+            # Still chain cumulative-bar milestones so AP respects ordering.
+            for i in range(num_levels):
+                loc = self.multiworld.get_location(_cumulative_bar_milestone_name(i), self.player)
+                if i > 0:
+                    prev = _cumulative_bar_milestone_name(i - 1)
+                    def make_chain_rule_no_grapple(prev_loc):
+                        def rule(state):
+                            return state.can_reach(prev_loc, "Location", self.player)
+                        return rule
+                    loc.access_rule = make_chain_rule_no_grapple(prev)
+
+            # Chain level completions too (water_on=False means no water rule was applied above).
+            if not water_on:
+                for i in range(1, num_levels):
+                    loc = self.multiworld.get_location(_level_complete_name(i), self.player)
+                    prev = _level_complete_name(i - 1)
+                    def make_level_chain_no_gates(prev_loc):
+                        def rule(state):
+                            return state.can_reach(prev_loc, "Location", self.player)
+                        return rule
+                    loc.access_rule = make_level_chain_no_gates(prev)
+
+            SCORE_UPGRADE_REQS = [0, 4, 10, 18, 26, 35]
+            for i in range(len(SCORE_MILESTONES)):
+                req = SCORE_UPGRADE_REQS[i]
+                if req > 0:
+                    def make_score_rule_no_grapple(r):
+                        def rule(state):
+                            total = (
+                                state.count("Retract Speed Up",      self.player) +
+                                state.count("Retract Bonus Up",      self.player) +
+                                state.count("Bar Decay Rate Down",   self.player) +
+                                state.count("Bar Decay Factor Down", self.player) +
+                                state.count("Impact Penalty Down",   self.player) +
+                                state.count("Grapple Payout Speed Up", self.player)
+                            )
+                            return total >= r
+                        return rule
+                    loc = self.multiworld.get_location(_score_milestone_name(i), self.player)
+                    loc.access_rule = make_score_rule_no_grapple(req)
+
+        # Goal conditions
+        goal      = self.options.goal_type.value
+        # Cap levels_required to the actual num_levels in case player set it higher
+        lvl_req   = min(self.options.levels_required.value, num_levels)
+        bars_req  = self.options.bars_required.value
 
         if goal == GOAL_LEVELS_COMPLETED:
+            # levels_completed: the player must trigger lvl_req level-complete checks.
+            # Those checks are water-gated, so reaching them logically requires Water Access.
+            # We express this as: can_reach the lvl_req-th level-complete location.
+            target_loc = _level_complete_name(lvl_req - 1)
             self.multiworld.completion_condition[self.player] = (
-                lambda state: state.has("Extra Level", self.player, lvl_req)
+                lambda state, loc=target_loc: state.can_reach(loc, "Location", self.player)
             )
 
-        elif goal == GOAL_SCORE:
-            def score_rule(state) -> bool:
-                received = (
-                    state.count("Score Bonus (Large)",  self.player) * 5_000 +
-                    state.count("Score Bonus (Medium)", self.player) * 2_000 +
-                    state.count("Score Bonus (Small)",  self.player) * 500
-                )
-                physics_bonus = (
-                    state.count("Retract Speed Up",     self.player) * 1_000 +
-                    state.count("Retract Bonus Up",     self.player) * 1_000 +
-                    state.count("Bar Decay Rate Down",  self.player) * 800 +
-                    state.count("Bar Decay Factor Down",self.player) * 800
-                )
-                return (received + physics_bonus) >= score_req
-            self.multiworld.completion_condition[self.player] = score_rule
-
         elif goal == GOAL_BARS_COLLECTED:
-            levels_needed = (bars_req + BARS_PER_LEVEL - 1) // BARS_PER_LEVEL
-            levels_needed = min(levels_needed, num_levels)
+            # Can reach the cumulative-bar milestone that covers bars_req bars.
+            # Find the first milestone threshold >= bars_req, within num_levels.
+            milestone_index = min(
+                next(
+                    (i for i in range(num_levels)
+                     if _cumulative_bar_threshold(i) >= bars_req),
+                    num_levels - 1
+                ),
+                num_levels - 1
+            )
+            target_loc = _cumulative_bar_milestone_name(milestone_index)
             self.multiworld.completion_condition[self.player] = (
-                lambda state, ln=levels_needed: (
-                    ln <= 1 or
-                    state.has("Extra Level", self.player, ln - 1) or
-                    state.has("Retract Speed Up", self.player, (ln - 1) * 2)
-                )
+                lambda state, loc=target_loc: state.can_reach(loc, "Location", self.player)
             )
 
         elif goal == GOAL_ALL_LOCATIONS:
@@ -487,14 +634,12 @@ class FloatingPointWorld(World):
     def fill_slot_data(self) -> Dict[str, Any]:
         num_levels = self.options.num_levels.value
         return {
-            "goal_type":                self.options.goal_type.value,
-            "num_levels":               num_levels,
-            "levels_required":          min(self.options.levels_required.value, num_levels),
-            "goal_score":               self.options.goal_score.value,
-            "bars_required":            min(self.options.bars_required.value, num_levels * BARS_PER_LEVEL),
-            "total_locations":          num_levels * BARS_PER_LEVEL + num_levels,
-            "level_complete_condition": self.options.level_complete_condition.value,
-            "water_access_required":    self.options.water_access.value,
-            "level_skip_required":      self.options.level_skip.value,
-            "grapple_unlock_required":  self.options.grapple_unlock.value,
+            "goal_type":               self.options.goal_type.value,
+            "num_levels":              num_levels,
+            "levels_required":         min(self.options.levels_required.value, num_levels),
+            "bars_required":           self.options.bars_required.value,
+            "total_locations":         _total_locations(num_levels),
+            "water_access_required":   self.options.water_access.value,
+            "grapple_unlock_required": self.options.grapple_unlock.value,
+            "starting_retract_speed":  self.options.starting_retract_speed.value,
         }
